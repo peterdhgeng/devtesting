@@ -3,7 +3,9 @@
 Run with: python3 widget.py
 Config: ~/.config/finance-widget/config.json (see config.example.json)
 """
+import csv
 import datetime
+import io
 import json
 import os
 import sys
@@ -15,14 +17,17 @@ import urllib.request
 
 CONFIG_PATH = os.path.expanduser("~/.config/finance-widget/config.json")
 
-# (display name, A1 range). Order here is the display order.
+SHEET_NAME = "Current"
+COL_INDEX = 2  # column C, 0-indexed
+
+# (display name, 1-indexed row number on the Current tab)
 METRICS = [
-    ("Net Worth",   "Current!C42"),
-    ("Liquid",      "Current!C46"),
-    ("Cash",        "Current!C2"),
-    ("Stocks",      "Current!C12"),
-    ("Retirement",  "Current!C21"),
-    ("Liabilities", "Current!C38"),
+    ("Net Worth",   42),
+    ("Liquid",      46),
+    ("Cash",         2),
+    ("Stocks",      12),
+    ("Retirement",  21),
+    ("Liabilities", 38),
 ]
 
 REFRESH_INTERVAL_MS = 15 * 60 * 1000  # 15 minutes
@@ -39,19 +44,50 @@ def load_config():
         return json.load(f)
 
 
-def fetch_values(spreadsheet_id, api_key, ranges):
-    qs = "&".join("ranges=" + urllib.parse.quote(r) for r in ranges)
+def fetch_sheet_csv(spreadsheet_id, sheet_name):
+    """Fetch a tab from a public-link Google Sheet as CSV. No auth needed."""
     url = (
-        f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
-        f"/values:batchGet?{qs}&valueRenderOption=UNFORMATTED_VALUE"
-        f"&key={urllib.parse.quote(api_key)}"
+        f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
+        f"/gviz/tq?tqx=out:csv&headers=0"
+        f"&sheet={urllib.parse.quote(sheet_name)}"
     )
-    with urllib.request.urlopen(url, timeout=15) as resp:
-        data = json.load(resp)
+    req = urllib.request.Request(url, headers={"User-Agent": "finance-widget/1"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        body = resp.read().decode("utf-8", errors="replace")
+    # Google returns HTML (a sign-in page) instead of CSV when the sheet
+    # isn't publicly readable. Catch that early with a clear message.
+    if body.lstrip().lower().startswith(("<!doctype", "<html")):
+        raise RuntimeError(
+            "sheet not public — set sharing to 'Anyone with the link → Viewer'"
+        )
+    return list(csv.reader(io.StringIO(body)))
+
+
+def parse_money(s):
+    """Best-effort: turn '$1,234.56', '(500)', '-$500', '1234' into a float."""
+    if s is None:
+        return None
+    s = str(s).strip()
+    if not s:
+        return None
+    s = s.replace(",", "").replace("$", "").replace(" ", "").replace("\xa0", "")
+    if s.startswith("(") and s.endswith(")"):
+        s = "-" + s[1:-1]
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def fetch_values(spreadsheet_id):
+    rows = fetch_sheet_csv(spreadsheet_id, SHEET_NAME)
     out = {}
-    for r, vr in zip(ranges, data.get("valueRanges", [])):
-        vals = vr.get("values") or [[None]]
-        out[r] = vals[0][0] if vals[0] else None
+    for name, row_num in METRICS:
+        idx = row_num - 1
+        if idx < len(rows) and COL_INDEX < len(rows[idx]):
+            out[name] = parse_money(rows[idx][COL_INDEX])
+        else:
+            out[name] = None
     return out
 
 
@@ -158,19 +194,12 @@ class Widget:
 
     def _do_refresh(self):
         try:
-            ranges = [r for _, r in METRICS]
-            raw = fetch_values(
-                self.config["spreadsheet_id"],
-                self.config["api_key"],
-                ranges,
-            )
-            current = {name: raw.get(rng) for name, rng in METRICS}
+            current = fetch_values(self.config["spreadsheet_id"])
             self.root.after(0, self._update_ui, current, None)
         except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", errors="replace")[:120]
-            self.root.after(0, self._update_ui, None, f"HTTP {e.code}: {body}")
+            self.root.after(0, self._update_ui, None, f"HTTP {e.code}")
         except Exception as e:
-            self.root.after(0, self._update_ui, None, repr(e))
+            self.root.after(0, self._update_ui, None, str(e))
 
     def _update_ui(self, current, error):
         if error:
@@ -198,15 +227,12 @@ class Widget:
 def main():
     if not os.path.exists(CONFIG_PATH):
         os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-        example = {
-            "spreadsheet_id": "1cCVjiY2gSYFmnW0xymERCRXtpHd3J8E1G-1SfMT5iLc",
-            "api_key": "PASTE_YOUR_GOOGLE_API_KEY_HERE",
-        }
+        example = {"spreadsheet_id": "1cCVjiY2gSYFmnW0xymERCRXtpHd3J8E1G-1SfMT5iLc"}
         sys.stderr.write(
             f"No config found at {CONFIG_PATH}\n\n"
             "Create it with contents like:\n"
             f"{json.dumps(example, indent=2)}\n\n"
-            "See README.md for how to get a Google API key.\n"
+            "The sheet must be shared as 'Anyone with the link → Viewer'.\n"
         )
         sys.exit(1)
     Widget(load_config()).run()
