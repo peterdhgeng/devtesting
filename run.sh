@@ -1,36 +1,74 @@
 #!/usr/bin/env bash
-# Launch the finance widget. Tries to find a Python that actually has tkinter
-# (pyenv-installed Pythons often don't), falling back to /usr/bin/python3
-# which on macOS ships with Tk built in.
+# Launch the finance widget. Finds a Python with a working tkinter — by
+# actually creating a Tk root (a bare `import tkinter` doesn't trigger the
+# system Tcl/Tk frameworks to load, so it can't catch macOS-SDK mismatches
+# like the one that ships in Apple's /usr/bin/python3 on older macOS).
 set -e
 cd "$(dirname "$0")"
 
+CACHE_FILE=".python-bin"
+
+PROBE='
+import sys
+try:
+    import tkinter
+    r = tkinter.Tk()
+    r.withdraw()
+    r.destroy()
+except Exception:
+    sys.exit(1)
+'
+
+probe() { "$1" -c "$PROBE" >/dev/null 2>&1; }
+
+# Reuse the last working interpreter if still good.
+if [ -f "$CACHE_FILE" ]; then
+    cached=$(cat "$CACHE_FILE")
+    if [ -n "$cached" ] && [ -x "$cached" ] && probe "$cached"; then
+        exec "$cached" widget.py
+    fi
+    rm -f "$CACHE_FILE"
+fi
+
 candidates=(
-    /usr/bin/python3
+    /opt/homebrew/bin/python3.13
+    /opt/homebrew/bin/python3.12
+    /opt/homebrew/bin/python3.11
+    /opt/homebrew/bin/python3
+    /usr/local/bin/python3.13
+    /usr/local/bin/python3.12
+    /usr/local/bin/python3.11
+    /usr/local/bin/python3
     /Library/Frameworks/Python.framework/Versions/Current/bin/python3
+    /usr/bin/python3
     python3
     python
 )
 
 for py in "${candidates[@]}"; do
-    if command -v "$py" >/dev/null 2>&1 && "$py" -c "import tkinter" >/dev/null 2>&1; then
+    if command -v "$py" >/dev/null 2>&1 && probe "$py"; then
+        if [[ "$py" == /* ]]; then
+            echo "$py" > "$CACHE_FILE"
+        else
+            command -v "$py" > "$CACHE_FILE"
+        fi
         exec "$py" widget.py
     fi
 done
 
 cat <<'EOF' >&2
-Could not find a Python install with tkinter available.
+Could not find a Python install with a working tkinter on this Mac.
 
-Quickest fix on macOS:
-  /usr/bin/python3 widget.py
+Quickest fix (you probably have Homebrew):
 
-If /usr/bin/python3 isn't present, install Xcode Command Line Tools:
-  xcode-select --install
+    brew install python-tk
 
-Or rebuild your pyenv Python with Tk support:
-  brew install tcl-tk
-  env PYTHON_CONFIGURE_OPTS="--with-tcltk-includes='-I$(brew --prefix tcl-tk)/include' \
-      --with-tcltk-libs='-L$(brew --prefix tcl-tk)/lib -ltcl8.6 -ltk8.6'" \
-    pyenv install --force 3.11.14
+then re-run ./run.sh.
+
+If you don't have Homebrew, install Python from python.org:
+
+    https://www.python.org/downloads/macos/
+
+— the .pkg installer ships with a working tkinter built in.
 EOF
 exit 1
