@@ -19,7 +19,7 @@ import urllib.request
 DEFAULT_SPREADSHEET_ID = "1cCVjiY2gSYFmnW0xymERCRXtpHd3J8E1G-1SfMT5iLc"
 CONFIG_PATH = os.path.expanduser("~/.config/finance-widget/config.json")
 
-GID = 0  # numeric tab id; 0 = first tab. Override with $FINANCE_GID.
+GID = 1419170754  # numeric id of the Current tab. Override with $FINANCE_GID.
 COL_INDEX = 2  # column C, 0-indexed
 
 # (display name, 1-indexed row number on the Current tab)
