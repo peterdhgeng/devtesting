@@ -15,6 +15,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+# Default sheet to read. Override with $FINANCE_SHEET_ID or by editing this.
+DEFAULT_SPREADSHEET_ID = "1cCVjiY2gSYFmnW0xymERCRXtpHd3J8E1G-1SfMT5iLc"
 CONFIG_PATH = os.path.expanduser("~/.config/finance-widget/config.json")
 
 SHEET_NAME = "Current"
@@ -40,8 +42,16 @@ RED       = "#f87171"
 
 
 def load_config():
-    with open(CONFIG_PATH) as f:
-        return json.load(f)
+    """Resolve the spreadsheet ID from env, config file, or hardcoded default."""
+    env_id = os.environ.get("FINANCE_SHEET_ID")
+    if env_id:
+        return {"spreadsheet_id": env_id}
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH) as f:
+            cfg = json.load(f)
+        if cfg.get("spreadsheet_id"):
+            return cfg
+    return {"spreadsheet_id": DEFAULT_SPREADSHEET_ID}
 
 
 def fetch_sheet_csv(spreadsheet_id, sheet_name):
@@ -225,16 +235,6 @@ class Widget:
 
 
 def main():
-    if not os.path.exists(CONFIG_PATH):
-        os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-        example = {"spreadsheet_id": "1cCVjiY2gSYFmnW0xymERCRXtpHd3J8E1G-1SfMT5iLc"}
-        sys.stderr.write(
-            f"No config found at {CONFIG_PATH}\n\n"
-            "Create it with contents like:\n"
-            f"{json.dumps(example, indent=2)}\n\n"
-            "The sheet must be shared as 'Anyone with the link → Viewer'.\n"
-        )
-        sys.exit(1)
     Widget(load_config()).run()
 
 

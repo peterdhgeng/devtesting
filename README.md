@@ -21,42 +21,27 @@ From the `Current` tab of the spreadsheet:
 | Retirement    | C21  |
 | Liabilities   | C38  |
 
-### One-time setup
+### Setup
 
-**1. Share the sheet via link**
+**1. Share the sheet via link.** In Google Sheets:
+*Share → General access → Anyone with the link → Viewer.* The sheet stays
+unlisted, but anyone who knows the URL can read it. No API key, no Google
+Cloud project.
 
-In Google Sheets: *Share → General access → Anyone with the link → Viewer*.
-The sheet stays unlisted, but anyone who happens to know the URL can read
-it. No API key, no Google Cloud project — the widget reads the public CSV
-export endpoint that Sheets exposes for link-shared documents.
-
-**2. Drop the spreadsheet ID into a config file**
+**2. Run it.**
 
 ```sh
-mkdir -p ~/.config/finance-widget
-cp config.example.json ~/.config/finance-widget/config.json
-```
-
-The default already points at the right sheet ID. If you ever swap to a
-different sheet, copy the long ID from its URL
-(`docs.google.com/spreadsheets/d/<THIS_PART>/edit`) into the config.
-
-**3. Make sure Tkinter is installed**
-
-Tkinter ships with the python.org installer and Anaconda. If you're on
-Homebrew Python and `python3 -m tkinter` errors, install it:
-
-```sh
-brew install python-tk
-```
-
-### Run it
-
-```sh
+git clone <this repo> && cd devtesting
 ./run.sh
-# or
-python3 widget.py
 ```
+
+That's it. The sheet ID is already baked in (`DEFAULT_SPREADSHEET_ID` at the
+top of `widget.py`); edit that constant or set `FINANCE_SHEET_ID=...` if you
+ever want to point at a different sheet.
+
+If `./run.sh` errors with *"No module named tkinter"* you're on Homebrew
+Python — fix with `brew install python-tk`. The python.org installer and
+Anaconda both ship Tkinter built-in.
 
 The widget appears in the top-right corner. Drag it anywhere with your mouse.
 Press `⌘Q` or `Esc` to close, `⌘R` to force-refresh. It auto-refreshes every
