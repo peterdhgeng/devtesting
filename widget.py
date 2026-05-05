@@ -19,7 +19,7 @@ import urllib.request
 DEFAULT_SPREADSHEET_ID = "1cCVjiY2gSYFmnW0xymERCRXtpHd3J8E1G-1SfMT5iLc"
 CONFIG_PATH = os.path.expanduser("~/.config/finance-widget/config.json")
 
-SHEET_NAME = "Current"
+GID = 0  # numeric tab id; 0 = first tab. Override with $FINANCE_GID.
 COL_INDEX = 2  # column C, 0-indexed
 
 # (display name, 1-indexed row number on the Current tab)
@@ -42,30 +42,32 @@ RED       = "#f87171"
 
 
 def load_config():
-    """Resolve the spreadsheet ID from env, config file, or hardcoded default."""
-    env_id = os.environ.get("FINANCE_SHEET_ID")
-    if env_id:
-        return {"spreadsheet_id": env_id}
+    """Resolve sheet ID and gid from env, config file, or hardcoded defaults."""
+    cfg = {"spreadsheet_id": DEFAULT_SPREADSHEET_ID, "gid": GID}
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH) as f:
-            cfg = json.load(f)
-        if cfg.get("spreadsheet_id"):
-            return cfg
-    return {"spreadsheet_id": DEFAULT_SPREADSHEET_ID}
+            cfg.update(json.load(f))
+    if os.environ.get("FINANCE_SHEET_ID"):
+        cfg["spreadsheet_id"] = os.environ["FINANCE_SHEET_ID"]
+    if os.environ.get("FINANCE_GID"):
+        cfg["gid"] = int(os.environ["FINANCE_GID"])
+    return cfg
 
 
-def fetch_sheet_csv(spreadsheet_id, sheet_name):
-    """Fetch a tab from a public-link Google Sheet as CSV. No auth needed."""
+def fetch_sheet_csv(spreadsheet_id, gid):
+    """Fetch a tab from a link-viewable Google Sheet as CSV. No auth needed.
+
+    Uses /export?format=csv (the same endpoint as File → Download → CSV),
+    which preserves empty rows exactly. The gviz/tq endpoint silently drops
+    them, throwing off row indexing — don't use it.
+    """
     url = (
         f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
-        f"/gviz/tq?tqx=out:csv&headers=0"
-        f"&sheet={urllib.parse.quote(sheet_name)}"
+        f"/export?format=csv&gid={gid}"
     )
     req = urllib.request.Request(url, headers={"User-Agent": "finance-widget/1"})
     with urllib.request.urlopen(req, timeout=20) as resp:
         body = resp.read().decode("utf-8", errors="replace")
-    # Google returns HTML (a sign-in page) instead of CSV when the sheet
-    # isn't publicly readable. Catch that early with a clear message.
     if body.lstrip().lower().startswith(("<!doctype", "<html")):
         raise RuntimeError(
             "sheet not public — set sharing to 'Anyone with the link → Viewer'"
@@ -89,8 +91,8 @@ def parse_money(s):
         return None
 
 
-def fetch_values(spreadsheet_id):
-    rows = fetch_sheet_csv(spreadsheet_id, SHEET_NAME)
+def fetch_values(spreadsheet_id, gid):
+    rows = fetch_sheet_csv(spreadsheet_id, gid)
     out = {}
     for name, row_num in METRICS:
         idx = row_num - 1
@@ -204,7 +206,10 @@ class Widget:
 
     def _do_refresh(self):
         try:
-            current = fetch_values(self.config["spreadsheet_id"])
+            current = fetch_values(
+                self.config["spreadsheet_id"],
+                self.config.get("gid", GID),
+            )
             self.root.after(0, self._update_ui, current, None)
         except urllib.error.HTTPError as e:
             self.root.after(0, self._update_ui, None, f"HTTP {e.code}")
