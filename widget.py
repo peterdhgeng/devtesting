@@ -22,14 +22,14 @@ CONFIG_PATH = os.path.expanduser("~/.config/finance-widget/config.json")
 GID = 1419170754  # numeric id of the Current tab. Override with $FINANCE_GID.
 COL_INDEX = 2  # column C, 0-indexed
 
-# (display name, 1-indexed row number on the Current tab)
+# (display name, 1-indexed row number on the Current tab, is_subitem)
 METRICS = [
-    ("Net Worth",   42),
-    ("Liquid",      46),
-    ("Cash",         2),
-    ("Stocks",      12),
-    ("Retirement",  21),
-    ("Liabilities", 38),
+    ("Net Worth",   42, False),
+    ("Liquid",      46, False),
+    ("Cash",         2, True),
+    ("Stocks",      12, True),
+    ("Retirement",  21, False),
+    ("Liabilities", 38, False),
 ]
 
 REFRESH_INTERVAL_MS = 15 * 60 * 1000  # 15 minutes
@@ -94,7 +94,7 @@ def parse_money(s):
 def fetch_values(spreadsheet_id, gid):
     rows = fetch_sheet_csv(spreadsheet_id, gid)
     out = {}
-    for name, row_num in METRICS:
+    for name, row_num, _ in METRICS:
         idx = row_num - 1
         if idx < len(rows) and COL_INDEX < len(rows[idx]):
             out[name] = parse_money(rows[idx][COL_INDEX])
@@ -182,17 +182,20 @@ class Widget:
                  font=("Helvetica", 9)).pack(anchor="w", pady=(0, 12))
 
         self.row_widgets = {}
-        for name, _ in METRICS:
+        for name, _, is_sub in METRICS:
             if name == "Net Worth":
                 continue
             row = tk.Frame(outer, bg=BG)
-            row.pack(fill="x", pady=2)
-            tk.Label(row, text=name, bg=BG, fg=FG_MED,
-                     font=("Helvetica", 11), width=12, anchor="w"
-                     ).pack(side="left")
-            value_lbl = tk.Label(row, text="—", bg=BG, fg=FG_BRIGHT,
-                                 font=("Helvetica", 12, "bold"),
-                                 anchor="e")
+            row.pack(fill="x", pady=1 if is_sub else 2)
+            label_font  = ("Helvetica", 9) if is_sub else ("Helvetica", 11)
+            value_font  = ("Helvetica", 10, "bold") if is_sub else ("Helvetica", 12, "bold")
+            label_color = FG_DIM if is_sub else FG_MED
+            value_color = FG_MED if is_sub else FG_BRIGHT
+            tk.Label(row, text=name, bg=BG, fg=label_color,
+                     font=label_font, width=14, anchor="w"
+                     ).pack(side="left", padx=(16 if is_sub else 0, 0))
+            value_lbl = tk.Label(row, text="—", bg=BG, fg=value_color,
+                                 font=value_font, anchor="e")
             value_lbl.pack(side="right")
             self.row_widgets[name] = value_lbl
 
@@ -221,7 +224,7 @@ class Widget:
             self.status.config(text=error[:80], fg=RED)
             return
         self.nw_value.config(text=fmt_money(current.get("Net Worth")))
-        for name, _ in METRICS:
+        for name, _, _is_sub in METRICS:
             if name == "Net Worth":
                 continue
             self.row_widgets[name].config(text=fmt_money(current.get(name)))
